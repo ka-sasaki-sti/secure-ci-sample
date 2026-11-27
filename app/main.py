@@ -98,3 +98,21 @@ def delete_todo(todo_id: int) -> None:
     with _lock:
         if _todos.pop(todo_id, None) is None:
             raise HTTPException(status_code=404, detail="not found")
+
+
+# --- デモ: CI に止められるべきコード（マージしない） ---
+import pickle
+
+import yaml
+
+
+@app.post("/import")
+async def import_todos(request: Request) -> dict[str, int]:
+    body = await request.body()
+    if request.headers.get("content-type") == "application/yaml":
+        data = yaml.load(body)  # 任意オブジェクトを復元できる
+    else:
+        data = pickle.loads(
+            body
+        )  # 外部入力をそのまま復元する（Apache Axis / Puppet と同じ型の事故）
+    return {"imported": len(data)}
