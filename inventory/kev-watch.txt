@@ -1,0 +1,12 @@
+# 新着 KEV の監視対象。このリポジトリが「ビルドはしないが依存している」もの。
+# 書式: vendor|product（CISA KEV の vendorProject / product に対する小文字の部分一致。product 空欄はベンダー全体）
+#
+# 実運用では、ここにアプライアンスやミドルウェア（vcenter, expressway, sonicwall, confluence など）も並べる。
+python|
+debian|
+linux|kernel
+docker|
+github|
+openssh|
+openssl|
+glibc|

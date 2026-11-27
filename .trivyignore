@@ -1,0 +1,10 @@
+# Trivy の例外登録。書式: CVE-ID exp:YYYY-MM-DD
+#
+# ルール:
+#   - 必ず「理由」と「期限（exp:）」を書く。期限が切れると自動的に検出対象に戻る
+#   - CISA KEV に載っている CVE は登録しない（scripts/vuln-gate.sh は KEV を最優先で止める）
+#   - このファイルの変更は CODEOWNERS のレビュー必須
+#
+# 例:
+# 該当機能（XXX）を無効化済み。上流の修正待ち。
+# CVE-2026-XXXXX exp:2026-12-31

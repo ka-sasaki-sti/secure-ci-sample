@@ -1,0 +1,42 @@
+# プロジェクト固有の「使ってはいけない API」。
+# Apache Axis / Puppet のように「外から来たデータに書かれた型をそのまま組み立てる」系の事故を、
+# レビューの注意力ではなく CI で止める。
+rules:
+  - id: no-unsafe-deserialization
+    languages: [python]
+    severity: ERROR
+    message: >-
+      pickle / marshal / shelve / yaml.load は任意のオブジェクトを復元できるため、
+      外部入力に使わないこと。JSON + Pydantic のスキーマで受ける。
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
+      - pattern: marshal.loads(...)
+      - pattern: shelve.open(...)
+      - patterns:
+          - pattern: yaml.load(...)
+          - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+
+  - id: no-dynamic-code-execution
+    languages: [python]
+    severity: ERROR
+    message: eval / exec は使わない
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+
+  - id: no-shell-true
+    languages: [python]
+    severity: ERROR
+    message: subprocess に shell=True を渡さない（引数はリストで渡す）
+    pattern: subprocess.$FUNC(..., shell=True, ...)
+
+  - id: fastapi-docs-must-be-gated
+    languages: [python]
+    severity: ERROR
+    message: >-
+      FastAPI の API ドキュメント（/docs, /openapi.json）は既定で公開される。
+      docs_url / redoc_url / openapi_url を明示的に指定して、本番では無効にすること。
+    patterns:
+      - pattern: FastAPI(...)
+      - pattern-not: FastAPI(..., openapi_url=$X, ...)

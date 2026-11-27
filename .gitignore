@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.sarif
+trivy-*.json
+sbom*.json
+image.tar
+zap-report/

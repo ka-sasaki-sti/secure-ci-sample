@@ -1,0 +1,16 @@
+[project]
+name = "secure-ci-sample"
+version = "0.1.0"
+description = "FastAPI の小さな ToDo API に、GitHub の無料機能と OSS だけでセキュリティ CI を組んだサンプル"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.165.0",
+    "uvicorn>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16.2",
+    "pytest>=9.2.0",
+    "ruff>=0.17.6",
+]

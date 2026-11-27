@@ -1,0 +1,34 @@
+# 依存の自動更新。方針は「普段は寝かせる、脆弱性修正は即」。
+#   - 通常の更新は cooldown で7日待つ（公開直後に乗っ取られたリリースを踏まない）
+#   - セキュリティ更新（Dependabot security updates）は cooldown の対象外なので、すぐ PR が来る
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    labels: [dependencies]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+    labels: [dependencies]
+
+  # アプリの Dockerfile と、CI で使うスキャナーのイメージ一覧
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /.github/scanners
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    labels: [dependencies]

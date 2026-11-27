@@ -1,0 +1,141 @@
+# コンテナイメージのビルド → 検査 → 公開。
+#
+#   verify  … PR でも main でも走る。ビルドしたイメージを Trivy で検査し、
+#             実際に起動して ZAP（DAST）と露出チェックを当てる。
+#   publish … main のときだけ。verify で「検査したそのイメージ」を GHCR に push し、
+#             ビルドの出所証明（SLSA provenance）と SBOM を署名つきで添付する。
+#
+# 毎日の定期実行も入れている。Dependabot の自動マージは GITHUB_TOKEN で行われ、
+# GITHUB_TOKEN による push では新しいワークフローが起動しない（GitHub の仕様）。
+# そのため自動マージされた更新は、この定期実行で検査・公開される。
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 20 * * *" # 毎日 05:00 JST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: build
+        run: |
+          # ベースイメージは Dockerfile で digest 固定。--pull と --no-cache で、
+          # ランナー上のキャッシュではなく固定した digest どおりに毎回組み立てる
+          docker build --pull --no-cache -t app:verify .
+          docker save app:verify -o image.tar
+
+      - name: scan image（脆弱性 / 設定ミス / 秘密情報）と SBOM の生成
+        run: |
+          trivy=$(scripts/scanner-image.sh trivy)
+          docker run --rm -v "$PWD:/src" -w /src "$trivy" \
+            image --quiet --input image.tar --scanners vuln,secret \
+              --format json --output trivy-image.json
+          docker run --rm -v "$PWD:/src" -w /src "$trivy" \
+            image --quiet --input image.tar --format cyclonedx --output sbom.cdx.json
+          scripts/vuln-gate.sh trivy-image.json
+
+      - name: start container
+        run: |
+          docker run -d --name app -p 8000:8000 --read-only --cap-drop ALL \
+            --security-opt no-new-privileges app:verify
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:8000/healthz && exit 0
+            sleep 1
+          done
+          docker logs app
+          exit 1
+
+      - name: exposure check（外から見えてはいけないものが閉じているか）
+        run: scripts/exposure-check.sh http://localhost:8000
+
+      - name: DAST（OWASP ZAP baseline）
+        run: |
+          zap=$(scripts/scanner-image.sh zap)
+          mkdir -p zap-report && chmod 777 zap-report
+          cp .zap/rules.tsv zap-report/
+          # -c: 誤検知の除外ルール / -I: WARN では落とさず FAIL だけで落とす
+          docker run --rm --network host -v "$PWD/zap-report:/zap/wrk:rw" "$zap" \
+            zap-baseline.py -t http://localhost:8000/healthz -c rules.tsv -I \
+              -r report.html -J report.json
+
+      - name: upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verified-image
+          path: |
+            image.tar
+            sbom.cdx.json
+            trivy-image.json
+            zap-report/
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    needs: verify
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write # GHCR への push
+      id-token: write # Sigstore の短命証明書（鍵を持たない署名）
+      attestations: write # 出所証明・SBOM の保存
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: verified-image
+
+      - name: push（verify で検査したイメージをそのまま出す。ここで再ビルドしない）
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          image="${IMAGE_NAME,,}"
+          docker load -i image.tar
+          docker tag app:verify "$image:sha-${GITHUB_SHA::12}"
+          docker tag app:verify "$image:main"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$image:sha-${GITHUB_SHA::12}"
+          docker push "$image:main"
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$image:main" | cut -d@ -f2)
+          docker logout ghcr.io
+          echo "name=$image" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "pushed: $image@$digest" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: attest build provenance（どのリポジトリ・コミット・ワークフローで作ったか）
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: attest SBOM（何が入っているか）
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: sbom.cdx.json
+          push-to-registry: true

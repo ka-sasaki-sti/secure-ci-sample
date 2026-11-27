@@ -1,0 +1,26 @@
+# Dependabot の patch 更新は、必須チェック（ruleset で指定）が全部通ったら自動でマージする。
+# minor / major は人が見る。セキュリティ更新は Dependabot の cooldown の対象外なので即 PR が来る。
+name: dependabot-automerge
+
+on: pull_request
+
+permissions: {}
+
+jobs:
+  automerge:
+    # PR 作成者で判定する（github.actor はなりすませるので使わない）
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'ka-sasaki-sti/secure-ci-sample'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+      - name: enable auto-merge (patch only)
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr merge --auto --squash "$PR_URL"

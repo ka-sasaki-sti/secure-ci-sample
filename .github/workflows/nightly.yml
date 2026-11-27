@@ -1,0 +1,120 @@
+# 毎晩の見直し。脆弱性は「デプロイした後に」公開されるので、PR 時のスキャンだけでは足りない。
+#
+#   rescan   … 公開中のイメージ（:main）の出所証明を検証してから、最新の脆弱性 DB で再スキャン
+#   new-kev  … CI でビルドしていない依存先（OS・ランタイム・基盤）に新着の KEV が出ていないか
+#   eol      … ランタイム（Python）のサポート終了が近づいていないか
+#
+# いずれも CI を落とすのではなく Issue を起票して追う。
+name: nightly
+
+on:
+  schedule:
+    - cron: "0 21 * * *" # 毎日 06:00 JST（build の定期実行の後）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rescan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: verify provenance（この CI でビルドされたイメージか）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:main"
+          gh attestation verify "oci://$image" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/build.yml"
+      - name: rescan with the latest DB
+        id: scan
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:main"
+          trivy=$(scripts/scanner-image.sh trivy)
+          docker run --rm -v "$PWD:/src" -w /src "$trivy" \
+            image --quiet --scanners vuln --format json --output rescan.json "$image"
+          if ! scripts/vuln-gate.sh rescan.json > result.txt 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+          cat result.txt
+      - name: open issue
+        if: steps.scan.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "公開中のイメージ \`ghcr.io/${GITHUB_REPOSITORY,,}:main\` に、対応が必要な脆弱性が見つかりました。"
+            echo
+            echo '```'
+            cat result.txt
+            echo '```'
+            echo
+            echo "run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > body.md
+          scripts/open-issue.sh "公開中のイメージに対応が必要な脆弱性" security body.md
+
+  new-kev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: match new KEV entries against inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fsSL --retry 3 \
+            https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json -o kev.json
+          since=$(date -u -d '2 days ago' +%F)
+          jq -r --arg since "$since" --rawfile watch inventory/kev-watch.txt '
+            ($watch | split("\n") | map(select(length > 0 and (startswith("#") | not)) | split("|"))) as $w
+            | .vulnerabilities[]
+            | select(.dateAdded >= $since)
+            | . as $v
+            | select(any($w[]; . as $p |
+                ($v.vendorProject | ascii_downcase | contains($p[0])) and
+                ($v.product       | ascii_downcase | contains($p[1] // ""))))
+            | "- [ ] \(.cveID) \(.vendorProject) / \(.product): \(.vulnerabilityName)（KEV 追加 \(.dateAdded) / 期限 \(.dueDate)）"
+          ' kev.json > new-kev.md
+          if [[ -s new-kev.md ]]; then
+            cat new-kev.md
+            scripts/open-issue.sh "依存先に新着の KEV（$(date -u +%F)）" kev new-kev.md
+          else
+            echo "新着 KEV なし（since $since）"
+          fi
+
+  eol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: check Python EOL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cycle=$(cut -d. -f1,2 .python-version)
+          eol=$(curl -fsSL https://endoflife.date/api/python.json \
+            | jq -r --arg c "$cycle" '.[] | select(.cycle == $c) | .eol')
+          days=$(( ( $(date -d "$eol" +%s) - $(date +%s) ) / 86400 ))
+          echo "Python $cycle: EOL $eol（残り $days 日）"
+          if (( days < 180 )); then
+            echo "Python $cycle のサポート終了（$eol）まで残り $days 日です。移行を計画してください。" > body.md
+            scripts/open-issue.sh "Python $cycle のサポート終了が近い" eol body.md
+          fi

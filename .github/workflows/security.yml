@@ -1,0 +1,112 @@
+# PR とmain への push で走るセキュリティチェック。5分以内で終わるものだけを置く。
+#
+#   gitleaks   … 秘密情報の混入（履歴も含む）
+#   semgrep    … 危険なコード（汎用ルール＋ .semgrep/ の独自ルール）
+#   trivy-fs   … 依存の脆弱性 / Dockerfile の設定ミス / 秘密情報 → scripts/vuln-gate.sh で判定
+#   zizmor     … GitHub Actions のワークフロー自体の危険な書き方
+#   dependency-review … PR で「新しく入る」依存の脆弱性（GitHub 標準・公開リポジトリは無料）
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # 過去のコミットに混入したものも見る
+          persist-credentials: false
+      - name: gitleaks
+        run: |
+          image=$(scripts/scanner-image.sh gitleaks)
+          docker run --rm -v "$PWD:/repo" "$image" git /repo --redact --exit-code 1
+
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write # SARIF を Security タブに出す
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: semgrep
+        run: |
+          image=$(scripts/scanner-image.sh semgrep)
+          docker run --rm -v "$PWD:/src" -w /src "$image" \
+            semgrep scan --config p/default --config .semgrep/ \
+              --sarif-output=semgrep.sarif --error
+      - name: upload SARIF
+        if: always() && github.event_name == 'push'
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  trivy-fs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: trivy fs
+        run: |
+          image=$(scripts/scanner-image.sh trivy)
+          # .github/scanners/Dockerfile はイメージ一覧でありビルドしないので対象外
+          docker run --rm -v "$PWD:/src" -w /src "$image" \
+            fs --quiet --scanners vuln,misconfig,secret \
+              --skip-files .github/scanners/Dockerfile \
+              --format json --output trivy-fs.json .
+          docker run --rm -v "$PWD:/src" -w /src "$image" \
+            convert --format sarif --output trivy-fs.sarif trivy-fs.json
+      - name: gate (KEV / 修正版のある CRITICAL / 設定ミス / 秘密情報)
+        run: scripts/vuln-gate.sh trivy-fs.json
+      - name: upload SARIF
+        if: always() && github.event_name == 'push'
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }} # オンライン監査（既知の脆弱な Action の検出など）に使う
+        run: |
+          image=$(scripts/scanner-image.sh zizmor)
+          docker run --rm -e GH_TOKEN -v "$PWD:/src" -w /src "$image" --format=github .github/workflows/
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+        with:
+          fail-on-severity: high

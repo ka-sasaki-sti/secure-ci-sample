@@ -1,0 +1,8 @@
+* @ka-sasaki-sti
+
+# CI の定義と、CI の「止める条件」を変える変更は必ずオーナーが見る
+/.github/ @ka-sasaki-sti
+/scripts/ @ka-sasaki-sti
+/.trivyignore @ka-sasaki-sti
+/.semgrep/ @ka-sasaki-sti
+/.zap/ @ka-sasaki-sti

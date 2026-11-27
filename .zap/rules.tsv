@@ -1,0 +1,2 @@
+# ZAP baseline のルール調整（ルールID<TAB>IGNORE|WARN|FAIL<TAB>理由）
+10049	IGNORE	(API は意図的に Cache-Control: no-store を返している)
