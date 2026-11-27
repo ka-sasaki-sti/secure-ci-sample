@@ -8,7 +8,7 @@
 FastAPI の小さな ToDo API に、**GitHub の無料機能と OSS だけ**でセキュリティ CI を組んだサンプルです。
 公開リポジトリであれば、ここにあるものはすべて追加費用なしで動きます。
 
-## 何を入れているか
+## 構成
 
 | タイミング | ワークフロー | 内容 |
 |---|---|---|
@@ -20,7 +20,7 @@ FastAPI の小さな ToDo API に、**GitHub の無料機能と OSS だけ**で�
 | 週次 / main | [`scorecard.yml`](.github/workflows/scorecard.yml) | OpenSSF Scorecard |
 | Dependabot の PR | [`dependabot-automerge.yml`](.github/workflows/dependabot-automerge.yml) | patch 更新はチェックが通れば自動マージ |
 
-### 何で CI を止めるか
+### CI の失敗条件
 
 [`scripts/vuln-gate.sh`](scripts/vuln-gate.sh) が Trivy の結果を読み、次の場合だけ失敗させます。
 
@@ -44,7 +44,7 @@ gh attestation verify oci://ghcr.io/ka-sasaki-sti/secure-ci-sample:main \
   --repo ka-sasaki-sti/secure-ci-sample
 ```
 
-## ローカルで動かす
+## ローカル実行
 
 ```bash
 uv sync
