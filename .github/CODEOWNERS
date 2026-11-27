@@ -6,3 +6,4 @@
 /.trivyignore @ka-sasaki-sti
 /.semgrep/ @ka-sasaki-sti
 /.zap/ @ka-sasaki-sti
+/ci/ @ka-sasaki-sti

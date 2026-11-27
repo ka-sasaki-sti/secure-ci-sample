@@ -1,5 +1,9 @@
 # Dependabot の patch 更新は、必須チェック（ruleset で指定）が全部通ったら自動でマージする。
 # minor / major は人が見る。セキュリティ更新は Dependabot の cooldown の対象外なので即 PR が来る。
+#
+# 注意:
+#   - ブランチ保護（必須チェック）が無いと、`gh pr merge --auto` はチェックを待たずに即マージする
+#   - docker の更新は cooldown が効かず公開直後の版が来ることがあるため、自動マージの対象外にしている
 name: dependabot-automerge
 
 on: pull_request
@@ -19,7 +23,9 @@ jobs:
       - id: meta
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
       - name: enable auto-merge (patch only)
-        if: steps.meta.outputs.update-type == 'version-update:semver-patch'
+        if: >-
+          steps.meta.outputs.update-type == 'version-update:semver-patch' &&
+          steps.meta.outputs.package-ecosystem != 'docker'
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ github.token }}

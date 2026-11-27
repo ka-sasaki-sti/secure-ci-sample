@@ -69,10 +69,10 @@ jobs:
       - name: trivy fs
         run: |
           image=$(scripts/scanner-image.sh trivy)
-          # .github/scanners/Dockerfile はイメージ一覧でありビルドしないので対象外
+          # ci/scanners/Dockerfile はイメージ一覧でありビルドしないので対象外
           docker run --rm -v "$PWD:/src" -w /src "$image" \
             fs --quiet --scanners vuln,misconfig,secret \
-              --skip-files .github/scanners/Dockerfile \
+              --skip-files ci/scanners/Dockerfile \
               --format json --output trivy-fs.json .
           docker run --rm -v "$PWD:/src" -w /src "$image" \
             convert --format sarif --output trivy-fs.sarif trivy-fs.json

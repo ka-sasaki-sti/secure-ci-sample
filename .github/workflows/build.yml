@@ -120,7 +120,6 @@ jobs:
           docker push "$image:sha-${GITHUB_SHA::12}"
           docker push "$image:main"
           digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$image:main" | cut -d@ -f2)
-          docker logout ghcr.io
           echo "name=$image" >> "$GITHUB_OUTPUT"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           echo "pushed: $image@$digest" >> "$GITHUB_STEP_SUMMARY"
@@ -139,3 +138,8 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           sbom-path: sbom.cdx.json
           push-to-registry: true
+
+      # push-to-registry は docker の認証情報を使うので、ログアウトは最後に行う
+      - name: logout
+        if: always()
+        run: docker logout ghcr.io

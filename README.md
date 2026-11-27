@@ -33,7 +33,7 @@ FastAPI の小さな ToDo API に、**GitHub の無料機能と OSS だけ**で�
 ### サプライチェーン対策
 
 - Action はすべて**コミット SHA で固定**（タグは書き換えられる）
-- スキャナーのコンテナも**digest で固定**し、[`.github/scanners/Dockerfile`](.github/scanners/Dockerfile) に集約して Dependabot に更新させる
+- スキャナーのコンテナも**digest で固定**し、[`ci/scanners/Dockerfile`](ci/scanners/Dockerfile) に集約して Dependabot に更新させる
 - Dependabot の通常更新は **7日寝かせる**（cooldown）。セキュリティ更新は即 PR
 - ワークフローの権限は既定で `contents: read`。書き込みはジョブ単位で付与
 

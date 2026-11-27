@@ -26,7 +26,7 @@ updates:
   - package-ecosystem: docker
     directories:
       - /
-      - /.github/scanners
+      - /ci/scanners
     schedule:
       interval: weekly
     cooldown:
